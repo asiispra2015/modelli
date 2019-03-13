@@ -5,7 +5,7 @@
 # - xcyc: se TRUE restituisco xc.s e yc.s (coordinate centrate e standardizzate)
 # - logpbl: se TRUE restituisco il logaritmo del pbl
 
-formulaModello<-function(logPM10=TRUE,variabiliCentrate=TRUE,uv10=FALSE,xcyc=FALSE,logpbl=FALSE){
+formulaModello<-function(logPM10=TRUE,logAOD=FALSE,variabiliCentrate=TRUE,uv10=FALSE,xcyc=FALSE,logpbl=FALSE){
   
   if(!variabiliCentrate){
     
@@ -55,6 +55,9 @@ formulaModello<-function(logPM10=TRUE,variabiliCentrate=TRUE,uv10=FALSE,xcyc=FAL
   
   #stessa formula con il log del pm10
   if(logPM10){update(pm10.formula.fixed,log(pm10)~.)->pm10.formula.fixed}
+  
+  #log aod o aod?
+  if(logAOD){update(pm10.formula.fixed,.~.-aod550+log.aod550)->pm10.formula.fixed}
   
   #stessa formula con il log del pm10 e wdir e wspeed invece di u10 e v10
   if(!uv10) {update(pm10.formula.fixed,.~.-u10.s-v10.s+wdir.s+wspeed.s)->pm10.formula.fixed}
