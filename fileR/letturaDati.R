@@ -11,7 +11,8 @@ leggiPM10<-function(nomeFileInput,
                     minimo=NULL,
                     massimo=NULL,
                     addXcYc=FALSE,
-                    rm_zonal_na=TRUE){
+                    rm_zonal_na=TRUE,
+		    addWday=FALSE){
 
   if(missing(nomeFileInput) || !is.character(nomeFileInput)) stop("nomeFileInput non valido")
   
@@ -59,19 +60,28 @@ leggiPM10<-function(nomeFileInput,
       message(sprintf("Valore massimo %s non valido e verrà ignorato"))
     }
   }
+
+  #aggiunge la variabile wday, il giorno della settimana da 1 a 7
+  if(addWday){
+	if(!any(grepl("^yymmdd$",names(dati)))) stop("var yymmdd non trovata")
+	lubridate::wday(dati$yymmdd)->dati$wday
+  }#fine su addWday
   
 
-  if(is.null(num_to_fact)) return(dati)
+  if(!is.null(num_to_fact)){
 
-  #Trasformo in factor variabili in pred3  
-  message("## Converto le variabili in fattori")
-    
-  purrr::map_at(dati,.at=num_to_fact,.f=as.factor) %>% 
-    purrr::reduce(data.frame) %>% as_tibble()->finale
+	  #Trasformo in factor variabili in pred3  
+	  message("## Converto le variabili in fattori")
+	    
+	  purrr::map_at(dati,.at=num_to_fact,.f=as.factor) %>% 
+	    data.frame() %>% as_tibble()->tmp
+
+	  tmp->dati
+          rm(tmp)	
+
+  }#fine if su num_to_fact	    
   
-  names(finale)<-names(dati)    
-  
-  finale
+  dati
 
   
 }#fine leggiPM10
