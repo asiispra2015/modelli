@@ -12,7 +12,7 @@ leggiPM10<-function(nomeFileInput,
                     massimo=NULL,
                     addXcYc=FALSE,
                     rm_zonal_na=TRUE,
-		    addWday=FALSE){
+		                addWday=FALSE){
 
   if(missing(nomeFileInput) || !is.character(nomeFileInput)) stop("nomeFileInput non valido")
   
@@ -40,6 +40,8 @@ leggiPM10<-function(nomeFileInput,
     rm(tmp)
   }#fine addXcYc
   
+  #aggiungo il mese
+  dati$mese<-as.integer(lubridate::month(dati$yymmdd))
   
   if(!is.null(minimo)){
     if(is.numeric(minimo)){
