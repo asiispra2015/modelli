@@ -7,13 +7,26 @@ library("dplyr")
 #addXcYc: se TRUE aggiunge le variabili "xc.s" e "yc.s" (coordinate delle stazioni standardizzate)
 
 leggiPM10<-function(nomeFileInput,
-                    num_to_fact=c("dust","climate_zone","season","cod_reg","yymmdd","zonal"),
+                    startDate="2015-01-01",
+                    endDate="2015-12-31",
                     minimo=NULL,
                     massimo=NULL,
                     addXcYc=FALSE,
-                    rm_zonal_na=TRUE,
-		                addWday=FALSE){
+                    addWday=FALSE,
+                    addPTP=FALSE,
+		                addPPM10=FALSE,
+		                num_to_fact=c("dust","climate_zone","season","cod_reg","yymmdd","zonal"),
+		                rm_zonal_na=TRUE){
 
+  print(sprintf("Lettura dati periodo %s - %s",startDate,endDate))
+  
+  #creazione calendario
+  seq.Date(from=as.Date(startDate),to=as.Date(endDate),by="day",format="%Y-%m-%d")->calendario
+  length(calendario)->numeroGiorni
+  
+  data.frame(yymmdd=as.character(calendario),stringsAsFactors = FALSE)->dfCal
+  rm(calendario)
+  
   if(missing(nomeFileInput) || !is.character(nomeFileInput)) stop("nomeFileInput non valido")
   
   tryCatch({
@@ -21,6 +34,9 @@ leggiPM10<-function(nomeFileInput,
   },error=function(e){
     stop(sprintf("File %s non trovato!",nomeFileInput))
   })->dati
+  
+  dati %>%
+    filter(yymmdd>=startDate & yymmdd<=endDate)->dati
   
   if(rm_zonal_na) {dati %>% filter(!is.na(zonal))->dati}
   
@@ -43,6 +59,64 @@ leggiPM10<-function(nomeFileInput,
   #aggiungo il mese
   dati$mese<-as.integer(lubridate::month(dati$yymmdd))
   
+  #aggiunge la variabile wday, il giorno della settimana da 1 a 7
+  if(addWday){
+	if(!any(grepl("^yymmdd$",names(dati)))) stop("var yymmdd non trovata")
+	lubridate::wday(dati$yymmdd)->dati$wday
+  }#fine su addWday
+  
+
+  #add previous PM10
+  if(addPPM10 || addPTP){
+    
+    unique(dati$id_centralina)->centraline
+    stopifnot(length(centraline)>0)
+    
+    
+    furrr::future_map(centraline,.f=function(cc){
+      
+      dati %>%
+        filter(id_centralina==cc) %>%
+        mutate(yymmdd=as.character(yymmdd))->subDati
+      
+      left_join(dfCal,subDati,by=c("yymmdd"="yymmdd"))->jsubDati
+      rm(subDati)
+     
+      if((nrow(jsubDati)!=numeroGiorni)) stop("addPPM10 funziona con serie giornaliere complete")
+      
+      #add previous pm10
+      if(addPPM10) {jsubDati$ppm10<-c(NA,jsubDati$pm10[1: (numeroGiorni-1) ])}
+      
+      #add previous total precipitation
+      if(addPTP) {
+        jsubDati$ptp.s<-c(NA,jsubDati$tp.s[1:(numeroGiorni-1) ])
+        jsubDati$ptp<-c(NA,jsubDati$tp[1:(numeroGiorni-1)])
+      }      
+      
+      jsubDati %>%
+        filter(!is.na(pm10))
+      
+    }) %>% reduce(bind_rows) %>% as.data.frame(.)->dati
+    
+    
+  }#fine addPM10/addPTP
+  
+  
+  if(!is.null(num_to_fact)){
+    
+    #Trasformo in factor variabili in pred3  
+    message("## Converto le variabili in fattori")
+    
+    purrr::map_at(dati,.at=num_to_fact,.f=as.factor) %>% 
+      data.frame() %>% as_tibble()->tmp
+    
+    tmp->dati
+    rm(tmp)	
+    
+  }#fine if su num_to_fact	
+  
+  
+  #il filtro sul minimo e massimo deve essere fatto alla fine, dopo aver calcolato le variabili "previous"
   if(!is.null(minimo)){
     if(is.numeric(minimo)){
       message(sprintf("## Elimino dati pm10 minori di:",minimo))
@@ -62,26 +136,7 @@ leggiPM10<-function(nomeFileInput,
       message(sprintf("Valore massimo %s non valido e verrà ignorato"))
     }
   }
-
-  #aggiunge la variabile wday, il giorno della settimana da 1 a 7
-  if(addWday){
-	if(!any(grepl("^yymmdd$",names(dati)))) stop("var yymmdd non trovata")
-	lubridate::wday(dati$yymmdd)->dati$wday
-  }#fine su addWday
   
-
-  if(!is.null(num_to_fact)){
-
-	  #Trasformo in factor variabili in pred3  
-	  message("## Converto le variabili in fattori")
-	    
-	  purrr::map_at(dati,.at=num_to_fact,.f=as.factor) %>% 
-	    data.frame() %>% as_tibble()->tmp
-
-	  tmp->dati
-          rm(tmp)	
-
-  }#fine if su num_to_fact	    
   
   dati
 
