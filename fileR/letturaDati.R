@@ -119,7 +119,7 @@ leggiPM10<-function(nomeFileInput,
   #il filtro sul minimo e massimo deve essere fatto alla fine, dopo aver calcolato le variabili "previous"
   if(!is.null(minimo)){
     if(is.numeric(minimo)){
-      message(sprintf("## Elimino dati pm10 minori di:",minimo))
+      message(sprintf("## Elimino dati pm10 minori di: %s",minimo))
       dati %>%
         filter(pm10>=minimo)->dati
     }else{
@@ -129,7 +129,7 @@ leggiPM10<-function(nomeFileInput,
   
   if(!is.null(massimo)){
     if(is.numeric(massimo)){
-      message(sprintf("## Elimino dati pm10 maggiori di:",massimo))
+      message(sprintf("## Elimino dati pm10 maggiori di: %s",massimo))
       dati %>%
         filter(pm10<=massimo)->dati
     }else{
