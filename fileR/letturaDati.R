@@ -15,6 +15,7 @@ leggiPM10<-function(nomeFileInput,
                     addWday=FALSE,
                     addPTP=FALSE,
 		                addPPM10=FALSE,
+		                addPAOD=FALSE,
 		                num_to_fact=c("dust","climate_zone","season","cod_reg","yymmdd","zonal"),
 		                rm_zonal_na=TRUE){
 
@@ -67,7 +68,7 @@ leggiPM10<-function(nomeFileInput,
   
 
   #add previous PM10
-  if(addPPM10 || addPTP){
+  if(addPPM10 || addPTP ||addPAOD){
     
     unique(dati$id_centralina)->centraline
     stopifnot(length(centraline)>0)
@@ -86,6 +87,9 @@ leggiPM10<-function(nomeFileInput,
       
       #add previous pm10
       if(addPPM10) {jsubDati$ppm10<-c(NA,jsubDati$pm10[1: (numeroGiorni-1) ])}
+      
+      if(addPAOD) {jsubDati$paod550<-c(NA,jsubDati$aod550[1: (numeroGiorni-1) ])}
+      
       
       #add previous total precipitation
       if(addPTP) {
