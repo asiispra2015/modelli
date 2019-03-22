@@ -1,0 +1,304 @@
+---
+title: Analisi del modello 
+author: "Guido Fioravanti"
+subtile: Diagnostica delle assunzioni di base del modello
+output:
+  html_document:
+    df_print: paged
+---   
+
+```{r,intro,include=FALSE}
+rm(list=objects())
+library("tidyverse")
+library("lme4")
+library("lmerTest")
+library("lattice")
+library("latticeExtra")
+library("mgcv")
+library("sp")
+library("knitr")
+library("kableExtra")
+library("car") #contiene vif.merMod per valutare la multicollinearità tra i predittori
+library("sjstats") #funzione r2, is_singular, convergence_ok
+library("sjPlot")
+source("./fileR/letturaDati.R")
+#sjstats: vedi ftp://cran.r-project.org/pub/R/web/packages/sjstats/vignettes/mixedmodels-statistics.html
+knitr::opts_chunk$set(echo=FALSE,include=TRUE,warning = FALSE,message=FALSE)
+knitr::opts_knit$set(progress = FALSE,verbose = FALSE)
+set.seed(10)
+
+#nome file del modello stimato
+"./modello.RDS"->nomeFileRDS
+
+#nome del dataset csv con i dati di pm10
+"./pm10_analisi.csv"->nomeFileCSV
+
+#data inizio e fine analisi del modello
+startDate<-"2015-01-01"
+endDate<-"2015-12-31"
+
+#calendario
+seq.Date(from=as.Date(startDate),to=as.Date(endDate),by="day",format="%Y-%m-%d")->calendario
+length(calendario)->numeroGiorni
+
+#alcune funzioni per i grafici con lattice
+grafico<-function(x,titolo=NULL){
+  qqnorm(x,main = titolo)
+  qqline(x)
+}#fine grafico
+
+```
+
+```{r,lettura_dati,include=FALSE}
+#lettura file, aggiustare questo comando in base al modello analizzato
+leggiPM10(nomeFileInput = nomeFileCSV,minimo=10,massimo=100,addXcYc=TRUE,rm_zonal_na = TRUE,addPTP = TRUE)->finale
+
+#lettura del modello (link simbolico al file .RDS)
+readRDS(nomeFileRDS)->myMod
+```
+
+```{r,associa,include=FALSE}
+#Associo al data.frame dei dati i valori previsti e i residui
+
+#modello fittato con mgcv
+if("gam" %in% class(myMod)){
+	# - valori fittati con lme4 senza applicare la trasformazione esponenziale. Questo vale se nel modello GAM non sono stati utilizzati random effects
+	finale$fitted_pm10<-predict(myMod,newdata=finale)
+}else{
+	# - valori fittati con lme4 senza applicare la trasformazione esponenziale. Ponendo re.form=NULL stiamo applicando i random effects
+	finale$fitted_pm10<-predict(myMod,newdata=finale,re.form=NULL,allow.new.levels=TRUE)
+}
+
+# - valori fittati applicando la trasformazione esponenziale.
+finale$efitted_pm10<-exp(finale$fitted_pm10)
+
+#residui del modello: sono i residui calcolati NON sul valore esponenziale del PM10 fittato, ma sul logaritmo. Sono i residui che servono per verificare le assunzioni del modello
+#qui fitted_pm10 è il logaritmo del pm10
+finale$residuals_pm10<-finale$fitted_pm10-log(finale$pm10)
+```
+
+##Formula del modello stimato
+
+```{r,include=TRUE}
+formula(myMod)
+```
+
+##VIF: multicollinearità
+La funzione vif dal pacchetto __car__ permette di calcolare il __Variance Inflation Factor__. 
+```{r}
+kable(as.data.frame(car::vif(myMod)),caption="VIF") 
+```
+
+###Diagnostica dei residui
+Si vuole verificare:
+  -Residui siano normali con media zero
+  -Omogeneità della varianza dei residui
+  -Incorrelazione (rispetto al tempo e allo spazio)
+
+###Normalità dei residui e varianza costante (omoschedasticità)
+```{r}
+xyplot(residuals_pm10~fitted_pm10,data=finale,type="p",main="Fitted vs Residuals")
+```
+
+```{r}
+qqmath(~residuals_pm10,data=finale,panel=function(x,...){
+  panel.qqmathline(x,...)
+  panel.qqmath(x,...)
+},aspect="fill",main="Quantile plot")
+```
+
+```{r,fig.height=7,fig.width=12,fig.height=12}
+xyplot(residuals_pm10~fitted_pm10|season,data=finale,main="Residui vs Valori previsti per stagione",abline=c(0,0),type=c("p"),aspect="iso",strip =strip.custom(factor.levels=c("Win","Spr","Sum","Aut")))
+```
+
+```{r,fig.width=16,fig.height=16}
+qqmath(~residuals_pm10|season,data=finale,panel=function(x){
+  panel.qqmathline(x)
+  panel.qqmath(x)
+},aspect="iso",cex=0.6,strip =strip.custom(factor.levels=c("Win","Spr","Sum","Aut")) )
+```
+
+###Residui incorrelati
+Dobbiamo verificare: sia la correlazione temporale che quella spaziale dei residui
+
+Prendiamo un campione casuale di 20 stazioni e rappresentiamo le serie dei residui rispetto al giorno (yymmdd).
+```{r,include=FALSE}
+#lista delle centraline
+unique(finale$id_centralina)->centraline
+#ne prendiamo 20 casuali
+sample(centraline,size=20)->campione
+
+#estraiamo le 20
+finale %>%
+  filter(id_centralina %in% campione) %>%
+  arrange(banda,id_centralina)->subFinale
+
+#dobbiamo riempire i buchi nel calendario perchè il dataset non contiene i giorni dove vi sono dati mancanti di PM10
+data.frame(yymmdd=calendario,stringsAsFactors = FALSE)->dfCal
+subFinale$yymmdd<-as.Date(subFinale$yymmdd)
+
+#riempie i buchi dei giorni nei dati in modo di avere 365 giorni per ogni serie di dati
+associaCalendario<-function(ss){
+  
+  subFinale %>%
+    filter(id_centralina==ss)->temp
+  
+  left_join(dfCal,temp,by=c("yymmdd"="yymmdd"))
+  
+}#fine funzione
+
+#furrr lavora come purrr ma in parallelo
+furrr::future_map(campione,.f=associaCalendario) %>% reduce(bind_rows)->subFinale
+```
+
+###Autocorrelazione temporale dei residui
+```{r,fig.width=10,fig.height=10}
+xyplot(residuals_pm10~banda|id_centralina,data=subFinale,type=c("l"),panel=function(x,y,...){
+  panel.xyplot(x,y,type="p",col="lightblue")
+  panel.smoother(form=y~s(x),method="gam",col="red")
+  panel.abline(h=0,col="red")
+},strip=strip.custom(par.strip.text=list(cex=0.5)),xlab="day")
+rm(subFinale)
+```
+
+### Correlazione spaziale
+Prendiamo 4 giorni a caso come esempio della distribuzione spaziale dei residui.
+
+```{r,fig.height=10}
+sample(1:numeroGiorni,size = 4)->campioneGiorni
+
+finale %>%
+      dplyr::select(residuals_pm10,banda,x,y) %>%
+      filter(banda %in% campioneGiorni)->subFinale
+
+purrr::map(campioneGiorni,.f=function(gg){
+
+  subFinale %>%
+  	filter(banda==gg) %>%
+    	as.data.frame()->dati
+  
+  coordinates(dati)=~x+y
+  proj4string(dati)<-CRS("+init=epsg:32632")
+  
+  sp::bubble(dati,zcol="residuals_pm10",main=paste0("Giorno: ",gg),maxsize = 1.5)->grafico
+  grafico
+
+})->listaGrafici
+```
+
+```{r,fig.width=14,fig.height=14}
+gridExtra::grid.arrange(grobs=listaGrafici,nrow=2,maxsize=2)
+```
+
+##Grafico dei valori previsti contro valori osservati di pm10 (con random effects nel caso di modelli a effetti misti)
+
+```{r,include=TRUE,fig.height=12,fig.width=12}
+xyplot(efitted_pm10~pm10,data=finale,type=c("p"),abline=c(0,1),main="Valori osservati vs valori stimati",xlim=c(0,200),ylim=c(0,200),aspect="iso",panel=function(x,y,...){
+  panel.xyplot(x,y,...)
+  panel.smoother(form=y~s(x),method="gam",col="red")
+})
+```
+
+```{r,include=TRUE,fig.height=12,fig.width=12}
+xyplot(efitted_pm10~pm10|season,data=finale,type=c("p"),abline=c(0,1),main="Valori osservati vs valori stimati",xlim=c(0,200),ylim=c(0,200),aspect="iso",panel=function(x,y,...){
+  panel.xyplot(x,y,...)
+  panel.smoother(form=y~s(x),method="gam",col="red")
+})
+```
+
+```{r,include=TRUE,fig.height=12,fig.width=12}
+xyplot(efitted_pm10~pm10|zonal,data=finale,type=c("p"),abline=c(0,1),main="Valori osservati vs valori stimati",xlim=c(0,200),ylim=c(0,200),aspect="iso",panel=function(x,y,...){
+  panel.xyplot(x,y,...)
+  panel.smoother(form=y~s(x),method="gam",col="red")
+})
+```
+
+#Metriche
+
+##Correlazione annuale e stagionale
+
+```{r}
+correlazione<-function(x){
+  cor(x$efitted_pm10,x$pm10,use = "pairwise.complete.obs")
+}  
+
+correlazione<-function(x){
+  cor(x$efitted_pm10,x$pm10,use = "pairwise.complete.obs")
+}  
+
+print("Annuale")
+correlazione(finale)
+
+print("Inverno")
+correlazione(finale%>% filter(season==1))
+print("Primavera")
+correlazione(finale%>% filter(season==2))
+print("Estate")
+correlazione(finale%>% filter(season==3))
+print("Autunno")
+correlazione(finale%>% filter(season==4))
+```
+
+##Bias
+
+```{r}
+bias<-function(x){
+  mean(x$efitted_pm10,na.rm=TRUE)-mean(x$pm10,na.rm=TRUE)
+}  
+
+print("Annuale")
+bias(finale)
+
+print("Inverno")
+bias(finale%>% filter(season==1))
+print("Primavera")
+bias(finale%>% filter(season==2))
+print("Estate")
+bias(finale%>% filter(season==3))
+print("Autunno")
+bias(finale%>% filter(season==4))
+```
+
+##Root mean squared error
+
+```{r}
+rmse<-function(x){
+  sqrt(mean((x$pm10-x$efitted_pm10)^2,na.rm=TRUE))
+}#rmse  
+
+print("Annuale")
+rmse(finale)
+
+print("Inverno")
+rmse(finale%>% filter(season==1))
+print("Primavera")
+rmse(finale%>% filter(season==2))
+print("Estate")
+rmse(finale%>% filter(season==3))
+print("Autunno")
+rmse(finale%>% filter(season==4))
+```
+
+##R^2
+
+```{r}
+r2<-function(x){
+  sst<-sum((x$pm10-mean(x$pm10,na.rm=TRUE))^2,na.rm=TRUE) #total sum of squares
+  sse<-sum((x$pm10-x$efitted_pm10)^2,na.rm=TRUE)
+  
+  (1-(sse/sst))*100
+  
+}#rmse  
+
+print("Annuale")
+r2(finale)
+
+print("Inverno")
+r2(finale%>% filter(season==1))
+print("Primavera")
+r2(finale%>% filter(season==2))
+print("Estate")
+r2(finale%>% filter(season==3))
+print("Autunno")
+r2(finale%>% filter(season==4))
+```
