@@ -1,4 +1,33 @@
 #Statistiche per la validazione del modello
+#Include il programma per effettuare la leave one out cross validation (ovvero per creare i k-fold)
+
+creaFolds<-function(k,n,ksize){
+  
+  if((k*ksize)>n) stop("ksize troppo grande")
+  
+  righe<-1:n
+  #righeOrig non va modificato, mentre righe lo aggiorniamo nei vari cicli
+  righeOrig<-righe
+  
+  listaOut<-vector(mode="list",length=2)
+  names(listaOut)<-c("index","indexOut")
+  
+  purrr::walk(1:k,.f=function(ii){
+    
+    sample(x=righe,size = ksize,replace = FALSE)->indexOut
+    base::setdiff(righe,indexOut)->index
+    
+    listaOut$indexOut[[ii]]<<-indexOut
+    listaOut$index[[ii]]<<-base::setdiff(righeOrig,indexOut)    
+    
+    
+    index->>righe
+    
+  })
+  
+  return(listaOut)
+  
+}#fine creaFolds  
 
 #verifica dei vettori .x e .y passati alle funzioni
 verifica<-function(x,y){
