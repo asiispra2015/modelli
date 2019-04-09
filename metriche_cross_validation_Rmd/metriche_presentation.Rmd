@@ -1,0 +1,150 @@
+---
+title: "Risultati LOTOCV (Leave One Time Out Cross Validation)"
+subtitle: "Modello originale Massimo"
+author: "ISPRA"
+date: "2019/04/07"
+output:
+  xaringan::moon_reader:
+    css: [metropolis]
+    lib_dir: libs
+    nature:
+      highlightStyle: github
+      highlightLines: true
+      countIncrementalSlides: false
+---
+
+```{r intro,echo=FALSE,include=FALSE}
+rm(list=objects())
+library("CAST")
+library("tidyverse")
+library("lme4")
+library("lattice")
+library("latticeExtra")
+library("knitr")
+library("kableExtra")
+source("./fileR/statistiche.R")
+source("crossValidation_support.R")
+knitr::opts_chunk$set(echo = FALSE,include = FALSE,fig.width = 9,fig.height = 8,message = FALSE)
+```
+
+```{r lettura}
+readRDS("risultati_cross_calidation.RDS")->risCros
+#numero k-fold
+length(risCros)->numK
+```
+
+```{r elabora_metriche}
+purrr::map(risCros,.f=function(x){
+
+  #dobbiamo usare il log nel caso del modello di Massimo
+  correlazione(x$pred.mod,x$pm10,.logx=TRUE,.logy=FALSE,use="everything")->outCor
+  rmse(x$pred.mod,x$pm10,.logx=TRUE,.logy=FALSE)->outRmse
+  bias(x$pred.mod,x$pm10,.logx=TRUE,.logy=FALSE)->outBias
+  r2(.pred=x$pred.mod,.obs=x$pm10,.logpred=TRUE,.logobs=FALSE)->outR2
+  
+  
+  data.frame(kfold=1:10,corr=outCor,rmse=outRmse,bias=outBias,r2=outR2)
+  
+  
+}) %>% reduce(rbind) %>% as.data.frame->dfRsquared
+```
+
+## Metriche utilizzate per valutare i risultati della cross-validation:
+
+* Correlazione
+* RMSE
+* Bias
+* R2
+
+---
+
+I risultati si riferiscono al modello originale. *Unica differenza: uso del logaritmo del pbl invece del pbl.*
+
+
+`r print(as.character(formula.modello2))`
+
+---
+
+class: center,  middle
+
+```{r risultati,include=TRUE}
+knitr::kable(dfRsquared,format="html") %>%
+  kable_styling(full_width=TRUE,font_size = 36)
+```
+
+---
+
+## Scatterplot valori previsti VS valori osservati
+
+```{r prepara_grafico_scatterplot}
+purrr::imap(risCros,.f=function(.x,.y){
+  
+  #dobbiamo usare il log nel caso del modello di Massimo
+  xyplot(log(pred.mod)~pm10|season,data=.x,panel=function(x,y,...){
+    panel.xyplot(x,y,...)
+    panel.loess(x,y,col="red")
+    panel.abline(a=0,b=1)
+  },main=paste0("k-",.y),
+  strip = strip.custom(factor.levels=c("Win","Spr","Sum","Aut")),
+  aspect = "fill",
+  ylab = "pred.mod",
+  xlab="pm10",ylim=c(-20,120))->grafico
+  
+  grafico
+  
+})->listaGrafici
+```
+
+```{r grafico_scatterplot_1,include=TRUE}
+gridExtra::grid.arrange(grobs=listaGrafici[1:4],nrow=2)
+```
+
+---
+
+```{r grafico_scatterplot_2,include=TRUE}
+gridExtra::grid.arrange(grobs=listaGrafici[5:8],nrow=2)
+```
+
+---
+
+```{r grafico_scatterplot_3,include=TRUE}
+gridExtra::grid.arrange(grobs=listaGrafici[9:10],nrow=2,ncol=2)
+```
+
+---
+
+## Density plot valori previsti (blu) VS valori osservati (linea viola)
+
+```{r prepara_grafico_densityPlot}
+purrr::imap(risCros,.f=function(.x,.y){
+
+  #dobbiamo usare il log nel caso del modello di Massimo
+  densityplot(~log(pred.mod)+pm10|season,data=.x,main=paste0("k-",.y),
+  strip = strip.custom(factor.levels=c("Win","Spr","Sum","Aut")),
+  ref=TRUE,
+  aspect="fill",
+  ylab = "density pm10",
+  xlab="",
+  ylim=c(0,0.08),
+  scales=list(y=list(at=seq(0,0.08,0.2),labels=seq(0,0.08,0.2) )))->grafico
+  
+  grafico
+  
+})->listaGrafici
+```
+
+```{r grafico_densityPlot_1,include=TRUE}
+gridExtra::grid.arrange(grobs=listaGrafici[1:4],nrow=2)
+```
+
+---
+
+```{r grafico_densityPlot_2,include=TRUE}
+gridExtra::grid.arrange(grobs=listaGrafici[5:8],nrow=2)
+```
+
+---
+
+```{r grafico_densityPlot_3,include=TRUE}
+gridExtra::grid.arrange(grobs=listaGrafici[9:10],nrow=2,ncol=2)
+```
