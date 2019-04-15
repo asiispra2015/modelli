@@ -10,7 +10,7 @@
 #Output:
 # -vettore o data.frame (se returnDF=TRUE) con il calendario in base al passo "step"
 
-creaCalendario<-function(annoI,annoF,step="day",returnDF=TRUE){
+creaCalendario<-function(annoI,annoF,step="day",returnDF=TRUE,splitDate=FALSE){
   if(missing(annoI) || missing(annoF)) stop("Specificare giorno inizio e fine del calendario: yyyy-mm-dd")
 
   if(!(is.character(annoI)) || !(is.character(annoF))) stop("annoI o annoF non validi")	
@@ -18,7 +18,14 @@ creaCalendario<-function(annoI,annoF,step="day",returnDF=TRUE){
   seq.Date(from=as.Date(annoI),to=as.Date(annoF),by=step)->calendario
   
   if(returnDF){
-	return(data.frame(yymmdd=calendario,stringsAsFactors=FALSE)) 
+    if(splitDate){
+      return(data.frame(yymmdd=calendario,stringsAsFactors=FALSE) %>% 
+               tidyr::separate(col=yymmdd,into=c("yy","mm","dd"),sep="-") %>%
+               mutate(mm=stringr::str_pad(mm,pad="0",side="left",width=2),dd=stringr::str_pad(dd,width=2,side="left",pad="0"))) 
+    }else{
+      return(data.frame(yymmdd=calendario,stringsAsFactors=FALSE))       
+    }
+
   }else{
 	return(calendario)	
   }		
